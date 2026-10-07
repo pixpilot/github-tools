@@ -13,10 +13,6 @@ jobs:
   ci:
     name: Run CI Checks
     uses: ./.github/workflows/ci.yml
-    # Called workflows get no secrets unless passed; without this a CI that
-    # installs private packages runs with an empty registry token and 401s.
-    secrets:
-      PIXPILOT_PRIVATE_REGISTRY_TOKEN: ${{ secrets.PIXPILOT_PRIVATE_REGISTRY_TOKEN }}
 
   release:
     name: Create Release and Publish
