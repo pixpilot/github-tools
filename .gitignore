@@ -80,6 +80,7 @@ pnpm-debug.log*
 # -----------------------------
 # Environment Files
 # -----------------------------
+.npmrc.*
 *.pem
 .env
 .env.*
