@@ -13,9 +13,12 @@ jobs:
   ci:
     name: Run CI Checks
     uses: ./.github/workflows/ci.yml
+    # Called workflows get no secrets unless passed; without this a CI that
+    # installs private packages runs with an empty registry token and 401s.
+    secrets:
+      PIXPILOT_PRIVATE_REGISTRY_TOKEN: ${{ secrets.PIXPILOT_PRIVATE_REGISTRY_TOKEN }}
 
   release:
-    if: ${{ !endsWith(github.repository, 'pnpm-turbo-monorepo-template') }}
     name: Create Release and Publish
     runs-on: ubuntu-latest
     needs: ci
@@ -23,12 +26,24 @@ jobs:
       contents: write
       pull-requests: write
       id-token: write
+    outputs:
+      published: ${{ steps.release.outputs.published }}
+      published-versions: ${{ steps.release.outputs.published-versions }}
+      release-summary: ${{ steps.release.outputs.release-summary }}
 
     steps:
+      - name: Generate bot app token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASER_ID }}
+          private-key: ${{ secrets.RELEASER_PRIVATE_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ steps.app_token.outputs.token }}
 
       - name: Setup project
         uses: pixpilot/github-actions/setup-pnpm-project@v1
@@ -37,43 +52,27 @@ jobs:
           build: 'false'
 
       - name: Release
+        id: release
         uses: pixpilot/changesets-autopilot@v1
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app_token.outputs.token }}
           provenance: 'true'
-          REGISTRY_TOKEN: ${{ secrets.NPM_TOKEN }}
-# ======================================================================
-# If your branch is protected, remove the steps above and use this one instead.
-# Additional setup:
-# - See the following gist for detailed instructions:
-#   https://gist.github.com/0xernesto/a8065cce55940e6ccc523664a87ee9bc
-# - You must set up a GitHub App and add the following repository secrets:
-#     RELEASER_ID:            The App ID of your GitHub App
-#     RELEASER_PRIVATE_KEY:   The private key for your GitHub App
-#     NPM_TOKEN:              Your npm publish token
-# ======================================================================
-# steps:
-#   - name: Generate bot app token
-#     id: app_token
-#     uses: actions/create-github-app-token@v2
-#     with:
-#       app-id: ${{ secrets.RELEASER_ID }}
-#       private-key: ${{ secrets.RELEASER_PRIVATE_KEY }}
 
-#   - name: Checkout repository
-#     uses: actions/checkout@v4
-#     with:
-#       fetch-depth: 0
-#       token: ${{ steps.app_token.outputs.token }}
+  notify:
+    name: Notify Release Status
+    needs: [ci, release]
+    if: always()
+    runs-on: ubuntu-latest
 
-#   - name: Setup project
-#     uses: pixpilot/github-actions/setup-pnpm-project@v1
-#     with:
-#       registry-url: 'https://registry.npmjs.org'
-#       build: 'false'
-
-#   - name: Release
-#     uses: pixpilot/changesets-autopilot@v1
-#     with:
-#       GITHUB_TOKEN: ${{ steps.app_token.outputs.token }}
-#       REGISTRY_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - name: Send Telegram release-status notification
+        uses: pixpilot/notify-action@v1
+        with:
+          status: ${{ contains(needs.*.result, 'failure') && 'failure' || contains(needs.*.result, 'cancelled') && 'cancelled' || 'success' }}
+          notify-on: any
+          # Names the released versions; an empty title falls back to the generated one.
+          title: ${{ needs.release.outputs.published == 'true' && format('Released {0} ({1})', needs.release.outputs.published-versions, github.repository) || '' }}
+          # Published packages, why nothing was published, or why the release failed.
+          message: ${{ needs.release.outputs.release-summary }}
+          telegram-bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          telegram-chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}

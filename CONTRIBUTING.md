@@ -1,4 +1,4 @@
-# Contributing to <projectName>
+# Contributing to Github Tools
 
 Thank you for your interest in contributing! 🎉
 
